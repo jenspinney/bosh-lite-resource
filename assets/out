@@ -31,30 +31,18 @@ if [ -z "$uri" ]; then
   exit 1
 fi
 
-if [ -z "$repository" ]; then
-  echo "invalid payload (missing repository)"
-  exit 1
-fi
-
-cd $repository
+git clone $uri
+cd sapi-env-pool # TODO make this generic
 
 git remote add push-target $uri
-commit_to_push=$(git rev-parse HEAD)
 
-# do the thing claim the bosh it's yours!
-git push --tags push-target HEAD:refs/heads/$branch
-pushd cloud_controller_ng > /dev/null
+# TODO don't fail so spectacularly if param isn't provided
+export GIT_AUTHOR_NAME=$(cat $(jq -r '.params.author_name // ""' < $payload))
+export GIT_AUTHOR_EMAIL=$(cat $(jq -r '.params.author_email // ""' < $payload))
+export GIT_COMMITTER_NAME=$(cat $(jq -r '.params.committer_name // ""' < $payload))
+export GIT_COMMITTER_EMAIL=$(cat $(jq -r '.params.committer_email // ""' < $payload))
 
-# TODO pull the following from git config (take git config code from git resource)
-  export GIT_AUTHOR_NAME=$(git log -1 --pretty=format:'%an')
-  export GIT_AUTHOR_EMAIL=$(git log -1 --pretty=format:'%ae')
-  export GIT_COMMITTER_NAME=$(git log -1 --pretty=format:'%cn')
-  export GIT_COMMITTER_EMAIL=$(git log -1 --pretty=format:'%ce')
-  story=$(git log -1 --pretty=format:'%B' | grep -i "\[finishes.*\]" --max-count 1 | sed -E 's/.*\[finishes\s+(.*)\].*/\1/gI')
-  if [ -z "$story" ]; then
-    story="unknown-story"
-  fi
-popd > /dev/null
+story=$(cat $(jq -r '.params.story // ""' < $payload))
 
 function msg {
   echo -e $1
@@ -183,7 +171,7 @@ EOF
 function commit_and_push() {
   git commit --quiet --message "CI-claim ${env} for ${story}"
   msg "Pushing reservation to $( basename $PWD )..."
-  git push --quiet
+  git push push-target
 }
 
 >&2 cd sapi-env-pool
@@ -192,8 +180,6 @@ env_file="$(realpath $newfile)"
 
 >&2 create_env_dir "${env_file}"
 >&2 commit_and_push
-
-echo "$(basename $newfile)" > ../bosh-lite-name/name
 
 jq -n "{
   version: {ref: "${env}"},
